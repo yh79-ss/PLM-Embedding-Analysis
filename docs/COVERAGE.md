@@ -11,11 +11,13 @@ over older interpretations. This is a reusable toolkit, not numerical study repl
 |---|---|---|
 | Protein-disjoint evaluation contract | `check-split`, `attach-split`, `validate` | Frozen lookup included; operational clusters do not prove remote-homology exclusion |
 | Fixed versus source-selected readout | `probe`, `evaluate` | Inner scaler/rank/alpha fits use source training labels only |
+| Fixed-prior residual and shrinkage controls | `residual` | Source-only alpha/lambda selection; independent fixed prior; portable retained-row rank universe |
 | Fixed-prior and substitution-floor comparison | `baselines`, `evaluate`, `compare` | Precomputed LLR/MSA scores; optional BLOSUM62 single-mutant floor |
 | Random-ranking reference | `evaluate` | Tie-preserving evaluation-label permutation; exchangeability assumption explicit |
 | Shuffled-source-label control | `probe --shuffle-source-labels` | Distinct refit control; repeat prespecified seeds |
-| Source/oracle performance, gap and recovery R | `diagnose`, `evaluate --oracle-column` | Same held-out rows, support access, weak denominator handling, no ceiling claim |
-| Position-overlap versus disjoint local signal | `support` | Corrected replacements, matched substitution counts, fixed/tuned readouts |
+| Source/oracle performance, gap and recovery R | `diagnose`, `evaluate --oracle-column` | Frozen oracle across source tuning, identical held-out rows, paired gap intervals; recovery remains single-seed |
+| Position-overlap versus disjoint local signal | `support` | Corrected replacements, matched substitution counts, fixed/tuned readouts, optional matched source/prior comparators |
+| Paired multi-seed diagnostic uncertainty | `paired-seeds`; integrated `diagnose`/`support` contrasts | Difference before seed-average, complete seed pairs, assay-macro conditional supercluster intervals |
 | Embedding shift and source calibration | `shift` | MMD², centroid/covariance distances, assay-level cluster-excluding reference |
 | MMD versus source performance/oracle gap | `associate` | Within-task descriptive associations; audited assay joins, no causal attribution |
 | Embedding visual panels | `geometry` | Shared capped-sample PCA and quality checks; no result-selected panels |
@@ -27,13 +29,24 @@ over older interpretations. This is a reusable toolkit, not numerical study repl
 | Exact-background context agreement | `context` | Sequence/variant identity and position-block uncertainty |
 | Pooling/modality/interface contrasts | independent `probe` runs + `compare` | Matched rows and selection; complete interfaces, not isolated causal modalities |
 | Add-information versus standalone performance | `probe --aux-embeddings` + `compare` | Exact-key concatenation and separate source selection; no target-selected best family |
-| Cross-task matrix and prior increments | `cross-task` | Ranking Holm family separate from unadjusted increment intervals |
+| Cross-task matrix and prior increments | `cross-task` | Source-only fits; safe matrix-column mapping; ordinary conditional intervals |
+| Declared-family reliable increment calibration | `calibrate-transfer` | Joint ranking Holm and one-sided Bonferroni bootstrap bounds; explicit threshold/family; approximate conditional inference, not historical replay |
 | Context/subgroup heterogeneity | `evaluate --group-by` | Supplied assay annotations, task-separated assay-macro summaries |
 | Provenance concentration | `provenance` | Assay and row concentration both reported, not a causal source-effect test |
 | External-corpus performance summaries | `evaluate`, `compare` | Saved predictions; external generation/overlap auditing remain user responsibilities |
 | Conditional paired uncertainty | `compare`, `evaluate`, `cross-task` | Supercluster resampling preserves assay-macro weighting; no refit uncertainty |
 
 ## Deliberate exclusions
+
+Coverage is not a claim to implement every research campaign. The following
+remaining differences are explicit: auxiliary concatenation has no learned
+block-scale selector or complete shuffle/dimension-matched null workflow;
+few-shot budget curves do not hold out one common evaluation population across
+budgets automatically; composition does not compare raw versus retained
+libraries in one command; context lacks background-equal pooled aggregation;
+external prediction generation, overlap screening and within-Venus scaling
+are not implemented. Users can evaluate supplied predictions but should not
+describe these partial primitives as complete replication of those analyses.
 
 - **Automatic causal driver categories and their threshold sweeps.** Historical
   mapping/covariate/noisy-label heuristics do not establish a unique cause.

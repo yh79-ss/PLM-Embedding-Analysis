@@ -32,6 +32,7 @@ def parser():
     validate.add_argument("--embeddings")
     for command, help_text in (
         ("probe", "Nested source-only Ridge and fixed-alpha control"),
+        ("residual", "Source-selected prior-anchored residual and shrinkage controls"),
         ("diagnose", "Matched rho_source, rho_oracle, oracle gap and source/oracle cosine"),
         ("cosine", "Pairwise weight cosine between fold-local probes"),
         ("support", "Explicit target-support position-overlap/disjoint diagnostic"),
@@ -46,16 +47,17 @@ def parser():
         ("provenance", "Assay/variant source concentration and fold coverage"),
         ("baselines", "Package fixed priors and optional BLOSUM62 substitution scores"),
         ("cross-task", "All directed task pairs: source-only selection, ranking signal and prior increment"),
+        ("paired-seeds", "Paired seed-averaged contrasts with conditional cluster intervals"),
     ):
         p = sub.add_parser(command, help=help_text)
         p.add_argument("--metadata", required=True)
         p.add_argument("--out", required=True, help="New directory; existing paths are refused")
         p.add_argument("--scope", required=True, help="Population name, including Binding subset when relevant")
         p.add_argument("--seed", type=int, default=0)
-        if command in ("probe", "support", "shift", "diagnose", "cosine", "geometry", "cross-task"):
+        if command in ("probe", "residual", "support", "shift", "diagnose", "cosine", "geometry", "cross-task"):
             p.add_argument("--embeddings", required=True)
             p.add_argument("--representation", required=True, help="Model, layer, pooling and mutant/WT/delta convention")
-        if command in ("probe", "support", "diagnose", "cross-task"):
+        if command in ("probe", "residual", "support", "diagnose", "cross-task"):
             p.add_argument("--alphas", type=float, nargs="+", default=[0.01, 0.1, 1, 10, 100, 1000, 10000, 100000, 1000000])
             p.add_argument("--fixed-alpha", type=float, default=1.0)
         if command == "probe":
@@ -70,10 +72,28 @@ def parser():
             p.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
         if command == "support":
             p.add_argument("--support-size", type=positive_int, default=512)
+            p.add_argument("--source-predictions", help="Frozen no-target-label predictions; matched by exact keys to each evaluation seed")
+            p.add_argument("--source-column", default="prediction")
+            p.add_argument("--source-label-protocol", choices=["no-target-label"], help="Required declaration when supplying source predictions")
+            p.add_argument("--baseline-column", help="Prespecified fixed prior in metadata; never measured effects")
         if command == "diagnose":
             p.add_argument("--support-fraction", type=float, default=0.5)
             p.add_argument("--source-selection", choices=["fixed", "nested"], default="fixed",
-                           help="Share fixed alpha, or source-selected alpha, between source and oracle")
+                           help="Choose source alpha only; oracle alpha and held-out rows remain fixed")
+            p.add_argument("--oracle-alpha", type=float, default=1.0, help="Independently fixed target-support oracle alpha; never chosen on evaluation labels")
+        if command == "residual":
+            p.add_argument("--baseline-column", default="baseline")
+            p.add_argument("--baseline-provenance", required=True, help="Origin and training/selection provenance of the fixed prior")
+            p.add_argument("--confirm-no-target-labels", action="store_true", required=True,
+                           help="Declare the fixed prior is independent of ALL supplied effect labels, and embeddings do not use target evaluation labels")
+            p.add_argument("--lambdas", type=float, nargs="+", default=[0, .05, .1, .25, .5, .75, 1])
+        if command == "paired-seeds":
+            p.add_argument("--predictions", required=True)
+            p.add_argument("--left", required=True, help="First prediction column; contrast is left minus right")
+            p.add_argument("--right", required=True)
+            p.add_argument("--seeds", type=int, nargs="+", required=True)
+            p.add_argument("--allow-evaluation-subset", action="store_true", help="Explicitly permit prediction keys to be a subset of full metadata")
+            p.add_argument("--label-protocol", choices=["no-target-label", "target-support", "few-shot", "descriptive"], required=True)
         if command == "cosine":
             p.add_argument("--alpha", type=float, default=1.0)
             p.add_argument("--label-transform", choices=["rank-gaussian", "percentile"], default="rank-gaussian")
@@ -116,7 +136,7 @@ def parser():
         if command == "shift":
             p.add_argument("--projection-dim", type=int, default=128, help="Fixed Gaussian projection dimension; 0 uses full features")
             p.add_argument("--max-samples", type=positive_int, default=1000)
-        if command in ("context", "compare", "evaluate", "cross-task"):
+        if command in ("context", "compare", "evaluate", "cross-task", "residual", "diagnose", "support", "paired-seeds"):
             p.add_argument("--bootstrap", type=positive_int, default=2000)
         if command == "context":
             p.add_argument("--min-variants", type=positive_int, default=100)
@@ -128,6 +148,17 @@ def parser():
             p.add_argument("--column-b", default="prediction")
             p.add_argument("--allow-intersection", action="store_true")
             p.add_argument("--label-protocol", choices=["no-target-label", "target-support", "few-shot", "descriptive"], required=True)
+    calibration = sub.add_parser("calibrate-transfer", help="Joint-family ranking tests and conditional simultaneous prior-increment bounds")
+    calibration.add_argument("--runs", nargs="+", required=True, help="Completed cross-task run directories; declare the full family before inspecting results")
+    calibration.add_argument("--family-id", required=True)
+    calibration.add_argument("--rho-threshold", type=float, required=True, help="Prespecified minimum ranking correlation for the reliable-increment decision")
+    calibration.add_argument("--family-alpha", type=float, default=.05)
+    calibration.add_argument("--bootstrap", type=positive_int, default=20000)
+    calibration.add_argument("--permutations", type=positive_int, default=10000)
+    calibration.add_argument("--allow-different-populations", action="store_true")
+    calibration.add_argument("--scope", required=True)
+    calibration.add_argument("--seed", type=int, default=0)
+    calibration.add_argument("--out", required=True)
     plot = sub.add_parser("plot", help="Plot a saved diagnostic summary (requires matplotlib)")
     plot.add_argument("--summary", required=True)
     plot.add_argument("--output", required=True)
@@ -148,8 +179,25 @@ def main(argv=None):
         p.error("--support-fraction must be strictly between 0 and 1")
     if hasattr(args, "alpha") and (not np.isfinite(args.alpha) or args.alpha <= 0):
         p.error("--alpha must be finite and strictly positive")
+    if hasattr(args, "oracle_alpha") and (not np.isfinite(args.oracle_alpha) or args.oracle_alpha <= 0):
+        p.error("--oracle-alpha must be finite and strictly positive")
+    if hasattr(args, "lambdas"):
+        if (len(set(args.lambdas)) != len(args.lambdas) or not {0, 1}.issubset(args.lambdas)
+                or not all(np.isfinite(a) and 0 <= a <= 1 for a in args.lambdas)):
+            p.error("--lambdas must be unique finite values in [0,1], including 0 and 1")
+        args.lambdas = sorted(args.lambdas)
+    if hasattr(args, "baseline_provenance") and not args.baseline_provenance.strip():
+        p.error("--baseline-provenance must be nonempty")
+    if hasattr(args, "family_alpha") and not 0 < args.family_alpha < 1:
+        p.error("--family-alpha must be strictly between 0 and 1")
+    if hasattr(args, "rho_threshold") and not 0 <= args.rho_threshold <= 1:
+        p.error("--rho-threshold must be finite and in [0,1]")
+    if hasattr(args, "family_id") and not args.family_id.strip():
+        p.error("--family-id must be nonempty")
     if hasattr(args, "seeds") and len(args.seeds) != len(set(args.seeds)):
         p.error("--seeds must be unique")
+    if hasattr(args, "seeds") and any(seed < 0 for seed in args.seeds):
+        p.error("--seeds must be nonnegative")
     if hasattr(args, "seed") and args.seed < 0:
         p.error("--seed must be nonnegative")
     if hasattr(args, "scope") and not args.scope.strip():
@@ -165,14 +213,20 @@ def main(argv=None):
     for attribute in ("columns", "group_by", "x", "y", "score_columns"):
         if hasattr(args, attribute) and len(getattr(args, attribute)) != len(set(getattr(args, attribute))):
             p.error(f"--{attribute.replace('_', '-')} must not contain duplicates")
-    if set(getattr(args, "group_by", [])) & set(["assay_id", "protein_id", "task", "super_cluster", "fold", "score", "model", "rho"]):
-        p.error("--group-by must name additional assay-level annotations, not identity/metric columns")
+    if getattr(args, "group_by", []):
+        from .evaluation import RESERVED_GROUP_COLUMNS
+        if set(args.group_by) & RESERVED_GROUP_COLUMNS:
+            p.error("--group-by must name additional annotations, not reserved identity/metric/provenance columns")
     if hasattr(args, "x") and set(args.x) & set(args.y):
         p.error("Association x and y column names must be distinct")
     if hasattr(args, "aux_embeddings") and bool(args.aux_embeddings) != bool(args.aux_representation):
         p.error("Supply --aux-embeddings and --aux-representation together")
     if getattr(args, "baseline_column", None) in ("assay_id", "mutant", "protein_id", "task", "super_cluster", "fold", "score"):
         p.error("The baseline must be a prespecified prediction column, not an identity or measured-effect column")
+    if hasattr(args, "source_predictions") and bool(args.source_predictions) != bool(args.source_label_protocol):
+        p.error("Supply --source-predictions and --source-label-protocol no-target-label together")
+    if args.command == "paired-seeds" and args.left == args.right:
+        p.error("--left and --right must be distinct prediction columns")
     try:
         with threadpool_limits(limits=1):
             if args.command == "demo":
@@ -200,6 +254,12 @@ def main(argv=None):
             elif args.command in ("probe", "support"):
                 from .probes import run_probe, run_support
                 (run_probe if args.command == "probe" else run_support)(args)
+            elif args.command == "residual":
+                from .residual import run_residual
+                run_residual(args)
+            elif args.command == "paired-seeds":
+                from .paired import run_paired_seeds
+                run_paired_seeds(args)
             elif args.command in ("diagnose", "cosine"):
                 from .diagnose import run_diagnose, run_cosine
                 (run_diagnose if args.command == "diagnose" else run_cosine)(args)
@@ -221,6 +281,9 @@ def main(argv=None):
             elif args.command == "cross-task":
                 from .cross_task import run_cross_task
                 run_cross_task(args)
+            elif args.command == "calibrate-transfer":
+                from .transfer_calibration import run_calibrate_transfer
+                run_calibrate_transfer(args)
             elif args.command == "plot":
                 from .plot import plot_summary
                 plot_summary(args)

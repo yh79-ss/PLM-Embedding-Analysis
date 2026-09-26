@@ -4,6 +4,10 @@ Run protein-embedding diagnostics on your own precomputed variant vectors.
 This repository includes our protein-level split and CPU tools for source/oracle
 prediction, embedding MMD, probe-weight cosine, and related assay analyses.
 
+Use **v0.4.0 or later** for significance testing. Earlier releases could omit
+floating-point ties from permutation p-values. See [corrections and migration](docs/RELEASE_NOTES.md)
+before reusing old significance tables; existing predictions need not be refitted.
+
 ## Choose a diagnostic
 
 The tools cover the broader slide/code workflow, not just MMD and oracle scores.
@@ -12,6 +16,7 @@ Start with `validate`, then choose the question relevant to your embeddings:
 | Question | Tool / instructions |
 |---|---|
 | Does source supervision help after readout tuning? | `probe`: fixed and source-selected Ridge; [baseline comparison](docs/RECIPES.md#fixed-baselines-and-ranking-controls) |
+| Do embeddings add information beyond a fixed prior? | [`residual`](docs/RECIPES.md#prior-anchored-residual-controls): source-selected residual shrinkage, prior-only and unit-residual controls |
 | How much assay-local signal is accessible? | `diagnose`: matched source/oracle scores; [normalized recovery](docs/RECIPES.md#normalized-recovery) |
 | Does local learnability depend on position overlap? | `support`: matched overlap/disjoint support and support-only tuning |
 | Do embedding distributions differ? | `shift`: MMD², centroid and covariance distances, source reference |
@@ -22,6 +27,8 @@ Start with `validate`, then choose the question relevant to your embeddings:
 | Are variant libraries or assay contexts different? | `composition`: coverage/JSD; `context`: exact-background agreement |
 | Does another interface add information, not just replace the base? | [`probe --aux-embeddings` + `compare`](docs/RECIPES.md#representation-and-complementarity-comparisons) |
 | Can one task predict another? | [`cross-task`](docs/RECIPES.md#cross-task-transfer): transfer/increment matrices, ranking null and source-only selection |
+| Is cross-task improvement supported across the declared test family? | [`calibrate-transfer`](docs/RECIPES.md#joint-family-transfer-calibration): joint ranking correction and simultaneous conditional increment bounds |
+| How do I compare repeated support splits correctly? | [`paired-seeds`](docs/RECIPES.md#paired-multi-seed-contrasts): matched seed-averaged differences and cluster intervals |
 | Are results driven by a subgroup or study source? | [`evaluate --group-by` + `provenance`](docs/RECIPES.md#subgroups-provenance-and-external-predictions) |
 | How do I evaluate external predictions or fixed priors? | `evaluate`, `baselines`, `compare`: keyed scores, matched populations, conditional intervals |
 
@@ -138,12 +145,17 @@ Open `outputs/diagnose/summary.csv`:
 | `n_valid_paired_assays` | Number of assays contributing finite, complete paired results |
 
 `per_seed.csv` and `per_assay.csv` contain the detailed metrics;
-`predictions.csv` contains `prediction_source` and `prediction_oracle`.
+`predictions.csv` contains `prediction_source`, `prediction_source_fixed`, and
+`prediction_oracle`. `paired_summary.csv` adds conditional cluster intervals for
+the oracle gaps, source improvement, and corresponding gap reduction.
 `oracle_splits.csv` records exactly which rows were support versus evaluation.
 
-Defaults use alpha 1 for both probes. To choose their shared alpha using source
-folds only, add `--source-selection nested --alphas 0.1 1 10 100 1000`.
-That mode needs at least two source folds for every outer fit.
+Defaults use alpha 1 for both probes. To tune **only the source**, add
+`--source-selection nested --alphas 0.1 1 10 100 1000`.
+The oracle retains the independently fixed `--oracle-alpha 1`; its predictions
+and evaluation rows do not change with the source-selection grid. Both fixed
+and selected source predictions are retained. Nested mode needs at least two
+source folds for every outer fit. [Runnable controlled comparison](docs/RECIPES.md#source-tuning-with-a-frozen-oracle).
 
 The oracle explicitly uses target-support labels; it is a diagnostic, not a
 no-target-label result or guaranteed performance ceiling. Random support can

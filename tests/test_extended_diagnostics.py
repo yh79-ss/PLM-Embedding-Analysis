@@ -49,7 +49,7 @@ def test_permutation_matches_spearman_and_preserves_ties():
     rng = np.random.default_rng(12)
     for row in actual:
         permuted = rng.permutation(y)
-        assert row[0] == pytest.approx(spearmanr(permuted, y).statistic)
+        assert row[0] == pytest.approx(spearmanr(permuted, y)[0])
         assert row[1] == pytest.approx(-row[0])
         assert np.isnan(row[2])
     np.testing.assert_allclose(holm([.01, .04, .03, np.nan]), [.04, .09, .09, np.nan])
@@ -73,7 +73,7 @@ def test_evaluate_exact_metrics_baseline_and_subgroups(data, tmp_path):
     predictions = pd.read_csv(data / "probe/predictions.csv")
     for row in per_assay.itertuples():
         group = predictions[predictions.assay_id.eq(row.assay_id)]
-        assert row.rho == pytest.approx(spearmanr(group.score, group[row.model]).statistic)
+        assert row.rho == pytest.approx(spearmanr(group.score, group[row.model])[0])
     summary = pd.read_csv(tmp_path / "eval/summary.csv")
     assert len(summary) == 6
     assert summary.n_valid.eq(5).all()
@@ -159,7 +159,7 @@ def test_associations_use_finite_matched_assays_not_pooled_tasks(data, tmp_path)
     joined = pd.read_csv(tmp_path / "assoc/joined_assays.csv")
     for row in summary.itertuples():
         group = joined[joined.task.eq(row.task)]
-        assert row.spearman == pytest.approx(spearmanr(group[row.x], group[row.y]).statistic)
+        assert row.spearman == pytest.approx(spearmanr(group[row.x], group[row.y])[0])
     assert len(summary) == 4
 
 

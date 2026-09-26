@@ -7,6 +7,7 @@ from scipy.stats import norm, rankdata
 
 from .data import IDENTITY, KEY, Run, load_embeddings, load_metadata, scores, stable_seed
 from .metrics import ranks, rho
+from .paired import declared_seeds, paired_seed_summary
 from .probes import fit_probe, rank_assays, select_source_alpha
 
 
@@ -30,10 +31,14 @@ def oracle_split(n, fraction, seed):
 
 def matched_summary(per_seed, seeds):
     """Use complete paired seeds/assays for both rho columns and their difference."""
+    expected = declared_seeds(seeds)
+    if per_seed.duplicated(["assay_id", "seed"]).any() or not set(per_seed.seed).issubset(expected):
+        raise ValueError("Duplicate or undeclared assay/seed metrics")
     rows = []
     for assay, group in per_seed.groupby("assay_id", sort=True):
-        pair_valid = bool(len(group) == len(seeds) and group.status.eq("ok").all())
-        cosine_valid = bool(len(group) == len(seeds) and np.isfinite(group.weight_cosine_source_oracle).all())
+        complete = set(group.seed) == expected
+        pair_valid = bool(complete and group.status.eq("ok").all())
+        cosine_valid = bool(complete and np.isfinite(group.weight_cosine_source_oracle).all())
         record = {"assay_id": assay, **{c: group[c].iloc[0] for c in IDENTITY[1:]},
                   "n_seeds": len(group), "n_valid_pairs": int(group.status.eq("ok").sum()),
                   "paired_status": "ok" if pair_valid else "incomplete_or_undefined_seed",
@@ -41,20 +46,31 @@ def matched_summary(per_seed, seeds):
                   "rho_oracle": group.rho_oracle.mean() if pair_valid else np.nan,
                   "oracle_gap": group.oracle_gap.mean() if pair_valid else np.nan,
                   "weight_cosine_source_oracle": group.weight_cosine_source_oracle.mean() if cosine_valid else np.nan}
+        for column in ("rho_source_fixed", "oracle_gap_fixed", "source_improvement", "gap_reduction"):
+            if column in group:
+                record[column] = group[column].mean() if pair_valid else np.nan
         rows.append(record)
     per_assay = pd.DataFrame(rows)
     summaries = []
     for task, group in per_assay.groupby("task", sort=True):
         paired = group[group.paired_status.eq("ok")]
-        summaries.append({"task": task, "n_assays": len(group), "n_valid_paired_assays": len(paired),
+        record = {"task": task, "n_assays": len(group), "n_valid_paired_assays": len(paired),
                           "rho_source": paired.rho_source.mean(), "rho_oracle": paired.rho_oracle.mean(),
                           "oracle_gap": paired.oracle_gap.mean(),
                           "n_valid_cosine_assays": int(group.weight_cosine_source_oracle.notna().sum()),
-                          "weight_cosine_source_oracle": group.weight_cosine_source_oracle.mean()})
+                          "weight_cosine_source_oracle": group.weight_cosine_source_oracle.mean()}
+        for column in ("rho_source_fixed", "oracle_gap_fixed", "source_improvement", "gap_reduction"):
+            if column in paired:
+                record[column] = paired[column].mean()
+        summaries.append(record)
     return per_assay, pd.DataFrame(summaries)
 
 
 def run_diagnose(args):
+    declared_seeds(args.seeds)
+    oracle_alpha = getattr(args, "oracle_alpha", 1.0)
+    if not np.isfinite(oracle_alpha) or oracle_alpha <= 0:
+        raise ValueError("Oracle alpha must be finite and positive")
     frame = load_metadata(args.metadata)
     x = load_embeddings(args.embeddings, frame)
     frame["score"] = scores(frame)
@@ -87,29 +103,37 @@ def run_diagnose(args):
             selection["outer_fold"], selection["task"] = fold, task
             selections.append(selection)
         source_model = fit_probe(x[source_idx], rank_assays(source), alpha)
-        print(f"diagnose: {task}, fold {fold}, shared alpha {alpha:g}", flush=True)
+        fixed_model = (source_model if alpha == args.fixed_alpha else
+                       fit_probe(x[source_idx], rank_assays(source), args.fixed_alpha))
+        print(f"diagnose: {task}, fold {fold}, source alpha {alpha:g}, frozen oracle alpha {oracle_alpha:g}", flush=True)
         for assay, group in target.groupby("assay_id", sort=True):
             features = x[group.index.to_numpy()]
             for seed in args.seeds:
                 support, ev = plans[assay, seed]
                 record = {"assay_id": assay, **{c: group[c].iloc[0] for c in IDENTITY[1:]},
-                          "seed": seed, "alpha": alpha, "n_support": len(support), "n_evaluation": len(ev),
+                          "seed": seed, "alpha": alpha, "source_alpha": alpha, "source_fixed_alpha": args.fixed_alpha,
+                          "oracle_alpha": oracle_alpha, "n_support": len(support), "n_evaluation": len(ev),
                           "rho_source": np.nan, "rho_oracle": np.nan, "oracle_gap": np.nan,
+                          "rho_source_fixed": np.nan, "oracle_gap_fixed": np.nan,
+                          "source_improvement": np.nan, "gap_reduction": np.nan,
                           "weight_cosine_source_oracle": np.nan, "status": "insufficient_support_or_evaluation"}
                 if eligible.loc[assay]:
                     support_y = group.iloc[support].score.to_numpy(dtype=float)
-                    oracle_model = fit_probe(features[support], ranks(support_y), alpha)
+                    oracle_model = fit_probe(features[support], ranks(support_y), oracle_alpha)
                     p_source = source_model.predict(features[ev])
+                    p_fixed = fixed_model.predict(features[ev])
                     p_oracle = oracle_model.predict(features[ev])
                     # Evaluation effects do not enter either fit or alpha selection.
                     evaluation_y = group.iloc[ev].score.to_numpy(dtype=float)
-                    rs, ro = rho(evaluation_y, p_source), rho(evaluation_y, p_oracle)
-                    record.update(rho_source=rs, rho_oracle=ro, oracle_gap=ro - rs,
+                    rs, rf, ro = rho(evaluation_y, p_source), rho(evaluation_y, p_fixed), rho(evaluation_y, p_oracle)
+                    record.update(rho_source=rs, rho_source_fixed=rf, rho_oracle=ro, oracle_gap=ro - rs,
+                                  oracle_gap_fixed=ro - rf, source_improvement=rs - rf, gap_reduction=(ro - rf) - (ro - rs),
                                   weight_cosine_source_oracle=weight_cosine(source_model.raw_coef, oracle_model.raw_coef),
-                                  status="ok" if np.isfinite(rs) and np.isfinite(ro) else "undefined_correlation")
+                                  status="ok" if np.isfinite([rs, rf, ro]).all() else "undefined_correlation")
                     result = group.iloc[ev][list(dict.fromkeys(KEY + IDENTITY))].copy()
                     result["seed"], result["score"] = seed, evaluation_y
                     result["prediction_source"], result["prediction_oracle"] = p_source, p_oracle
+                    result["prediction_source_fixed"] = p_fixed
                     predictions.append(result)
                 metrics.append(record)
     per_seed = pd.DataFrame(metrics)
@@ -117,6 +141,14 @@ def run_diagnose(args):
     run.table("per_seed.csv", per_seed)
     run.table("per_assay.csv", per_assay)
     run.table("summary.csv", summary)
+    contrasts = {"source_improvement": ("rho_source", "rho_source_fixed"),
+                 "gap_reduction": ("oracle_gap_fixed", "oracle_gap"),
+                 "oracle_gap": ("rho_oracle", "rho_source"),
+                 "oracle_gap_fixed": ("rho_oracle", "rho_source_fixed")}
+    paired, intervals = paired_seed_summary(per_seed, contrasts, args.seeds, getattr(args, "bootstrap", 2000), args.seed,
+                                           required_columns=["rho_source", "rho_source_fixed", "rho_oracle"])
+    run.table("paired_per_assay.csv", paired)
+    run.table("paired_summary.csv", intervals)
     if predictions:
         run.table("predictions.csv", pd.concat(predictions, ignore_index=True))
     if selections:
@@ -124,7 +156,10 @@ def run_diagnose(args):
     run.finish(n_eligible_assays=int(eligible.sum()), split="random rows within each target assay; same evaluation rows for both probes",
                source_label_protocol="no-target-label fitting; outer fold excluded",
                oracle_label_protocol="assay-local target support; not a theoretical ceiling or cross-family result",
-               alpha_rule="same alpha for source and oracle, fixed or selected only on source folds",
+               alpha_rule="oracle alpha fixed independently before source tuning; fixed source control and source-selected fit use identical evaluation rows",
+               legacy_fields="alpha denotes source alpha only; prediction_source/rho_source denote the requested fixed or nested source mode",
+               oracle_alpha=oracle_alpha,
+               uncertainty="95% conditional percentile supercluster bootstrap after complete-seed within-assay pairing; fixed predictions/splits/selections; no multiplicity adjustment",
                cosine_role="source-vs-oracle coefficients in the same original feature coordinates; exploratory descriptive geometry",
                rank_scope="percentile ranks computed separately in each fitting assay/support set")
 

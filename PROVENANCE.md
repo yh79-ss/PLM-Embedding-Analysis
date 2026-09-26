@@ -95,12 +95,14 @@ of private-path producer scripts with their original result/cache dependencies.
   Resamples are expanded explicitly for clarity, which can be slower on large
   assays than the original weighted-rank implementation.
 - Comparison intervals preserve the assay-macro paired contrast while resampling
-  clusters. They do not reproduce study-specific registration, simultaneous
-  bounds, multiple-testing procedures or two-level source-refit uncertainty.
-- The v0.2 `diagnose` command adds random-row target-support comparison with
+  clusters. Ordinary comparison intervals are not simultaneous. The separate
+  v0.4 `calibrate-transfer` command adds a declared-family decision procedure,
+  not the study-specific registration or two-level source-refit uncertainty.
+- The `diagnose` command adds random-row target-support comparison with
   explicit `rho_source`, `rho_oracle`, gap and source/oracle cosine columns. It
-  uses one common fixed or source-selected alpha, original-coordinate weights,
-  and finite complete-seed paired summaries. The separate `cosine` command adds
+  now uses independently fixed oracle alpha and fixed/selected source controls,
+  original-coordinate weights, and finite complete-seed paired summaries.
+  Before v0.4 it shared source-selected alpha with the oracle. The separate `cosine` command adds
   fold-local comparisons with historical rank-Gaussian labels by default. Both
   use SVD and the portable input population; neither reproduces cached study
   values or the historical causal cosine thresholds. No independent-pair
@@ -122,6 +124,9 @@ Important differences from the upstream producers are explicit:
 - Evaluation permutations preserve the actual observed ties. Holm covers only
   the ranking-test family in a given call; paired increment intervals are
   conditional supercluster intervals, not historical simultaneous bounds.
+  V0.4 adds floating-point tie inclusion to the p-value tail count; earlier
+  p-values should be reevaluated before use. Point estimates are not altered by
+  that correction.
 - Recovery uses one selected oracle evaluation seed at a time and a user-declared
   minimum oracle rho (default 0.05). It is not a reproduction of historical
   denominator thresholds, populations or recovery intervals.
@@ -142,6 +147,34 @@ Important differences from the upstream producers are explicit:
   feature construction is performed or certified.
 - BLOSUM62 is optionally loaded from BioPython's bundled matrix; no matrix,
   external protein record or third-party dataset is copied into the repository.
+
+The v0.4 additions address the independent correctness/coverage audit:
+
+- `residual` implements fixed-prior plus a source-selected alpha/lambda residual,
+  alongside prior-only, fixed-alpha unit, and source-selected unit controls.
+  The source contract is
+  `experiment/residual_models/extended_nested_selection/contract/extended_nested_alpha_lambda_contract.yaml`.
+  Both portable rank universes are the supplied assay rows, not the historical
+  full-pre-cap effect-rank universe. The prior must be independent of all supplied
+  effect labels; the tool does not construct nested source-fitted priors.
+- Frozen-oracle source tuning follows the controlled-comparison idea in
+  `experiment/diagnostics/target_support_oracle/contract/oracle_pair_source_alpha_contract.yaml`.
+  The oracle is newly fit only on the user's support rows, then held fixed across
+  source controls; it does not load historical oracle predictions.
+- `paired-seeds` and integrated local diagnostics calculate paired seed-averaged
+  assay contrasts before supercluster resampling. Saved source and fixed-prior
+  controls can be joined to position-support evaluation rows. Conditional
+  intervals omit fit, selection, and support-sampling uncertainty.
+- `calibrate-transfer` recalculates corrected ranking p-values from completed
+  cross-task predictions and applies a single explicitly declared family across
+  supplied runs. Ranking Holm and one-sided Bonferroni cluster-bootstrap lower
+  bounds are separate requirements. This is nominal conditional calibration,
+  not an exact finite-sample guarantee or the study's historical assay-bootstrap
+  registration; a user-declared family/threshold cannot be certified as truly
+  prespecified by software.
+
+No completed study output or empirical conclusion is replaced by these additions.
+See [release notes](docs/RELEASE_NOTES.md) for changed output schemas and migration.
 
 Changing the population, rank convention, pooling, solver, selection grid,
 support design or metric changes the estimand or numerical procedure. Declare

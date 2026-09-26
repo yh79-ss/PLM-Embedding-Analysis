@@ -13,7 +13,25 @@ def rho(y, prediction):
         return float("nan")
     if np.ptp(y) == 0 or np.ptp(prediction) == 0:
         return float("nan")
-    return float(spearmanr(y, prediction).statistic)
+    # Index zero is shared by SciPy 1.9's SpearmanrResult and newer result types.
+    return float(spearmanr(y, prediction)[0])
+
+
+def permutation_pvalue(null, observed):
+    """Plus-one upper tail, including numerical ties between correlation routes.
+
+    Rank-dot and SciPy correlation, or vector and batched BLAS products, can
+    round a mathematically identical statistic differently. The absolute floor
+    is 100 float64 eps for these bounded [-1, 1] statistics, not a scientific
+    effect-size tolerance. Undefined hypotheses stay undefined, not p=0.
+    """
+    null = np.asarray(null, dtype=float)
+    if null.ndim != 1:
+        raise ValueError("Permutation null must be one-dimensional")
+    if not len(null) or not np.isfinite(observed) or not np.isfinite(null).all():
+        return float("nan")
+    tolerance = 100 * np.finfo(float).eps * max(1.0, abs(float(observed)))
+    return float((1 + np.count_nonzero(null >= observed - tolerance)) / (len(null) + 1))
 
 
 def ranks(y):

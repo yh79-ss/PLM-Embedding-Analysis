@@ -179,12 +179,15 @@ independently fitted StandardScalers, percentile-rank fitting labels, and SVD
 Ridge. Labels are ranked only within the fitting assay or support set. Their
 predictions are scored against the same held-out target variants.
 
-The default `--source-selection fixed --fixed-alpha 1` uses the same declared
-alpha for both probes. With `--source-selection nested`, alpha is selected on
-source folds using the `probe` selection rule, then shared with the oracle.
-This controls the readout penalty without using target labels for selection; it
-does not independently optimize the oracle. Use the separately labeled
-`support` command for the position-controlled support-tuned design.
+Since v0.4, `--fixed-alpha` controls the fixed source and `--oracle-alpha`
+independently controls the oracle; both default to 1. With
+`--source-selection nested`, source alpha is selected on source folds using the
+`probe` rule, while the oracle stays fixed. The fixed source, selected source
+and oracle share evaluation rows. Thus source improvement and oracle-gap
+reduction isolate the source-readout change. The oracle is not optimized on
+evaluation labels. Use the separately labeled `support` command for the
+position-controlled support-tuned design. Versions before v0.4 shared the
+selected alpha with the oracle; those nested runs answer a different question.
 
 Definitions for one assay and support seed:
 
@@ -203,7 +206,12 @@ Per-assay rho values average over the declared seeds only if every seed has
 finite values for both models. Task summaries average those complete paired
 assays equally. Counts are disclosed. Cosines have their own finite-assay count
 and may have a different valid population. Seeds are repeated measurements, not
-independent assays. This command generates no confidence intervals or p-values.
+independent assays. `paired_per_assay.csv` and `paired_summary.csv` report
+paired differences and 95% supercluster-bootstrap intervals after averaging
+within assay over complete seeds. They use a common finite population across
+fixed source, selected source, and oracle. Intervals condition on fitted models,
+selected alphas, and realized support splits; they are not refit/support-sampling
+intervals or simultaneous discoveries. No cosine interval or gap p-value is inferred.
 
 ## Probe-weight cosine
 
@@ -386,13 +394,16 @@ only for the final metrics. The input CSV is read into memory, so this is a
 computational label boundary rather than a file-access isolation guarantee.
 
 Metrics average seeds within each assay, then assays within each task. Undefined
-seed metrics make that assay/model mean undefined. No support-bootstrap interval
-or comparison with a source predictor is automatically produced. To compare
-saved source predictions on these rows, select one support seed and model first
-(keys repeat across seeds), use `compare` with `--label-protocol target-support`,
-and report that seed's exact population. Do not treat seeds as independent assays
-or pool them as independent observations. Fixed-prediction intervals omit
-support-sampling uncertainty.
+seed metrics make that assay/model mean undefined. Paired summaries report
+overlap-minus-disjoint and selected-minus-fixed contrasts on complete paired
+seeds before averaging and supercluster resampling. Optional
+`--source-predictions` with `--source-label-protocol no-target-label` joins a
+frozen source predictor, and `--baseline-column` supplies a fixed metadata prior.
+Comparators must cover every evaluation key (and seed, if provided). Both are
+scored on exactly the local models' held-out rows; no source refit is performed.
+These target-support comparisons remain distinct from no-target-label results.
+The intervals condition on predictions and splits and omit support resampling
+and model-selection uncertainty. See the [paired recipes](RECIPES.md#paired-multi-seed-contrasts).
 
 Accessible local signal is evidence about the declared support design. It does
 not establish label-free transfer, deployable gain without support labels, or a
@@ -462,13 +473,25 @@ hashes are recorded. Preserve manifests alongside results.
 | Command | Main output tables |
 |---|---|
 | `probe` | `predictions.csv`, `source_selection.csv`, `per_assay.csv`, `source_scores.csv`, `summary.csv` |
-| `diagnose` | `oracle_splits.csv`, `eligibility.csv`, `predictions.csv`, `per_seed.csv`, `per_assay.csv`, `summary.csv`; `source_selection.csv` in nested mode |
+| `residual` | `predictions.csv`, `source_selection.csv`, `source_candidate_scores.csv`, `selected_hyperparameters.csv`, `per_assay.csv`, `summary.csv`, `contrast_per_assay.csv`, `contrasts.csv` |
+| `diagnose` | `oracle_splits.csv`, `eligibility.csv`, `predictions.csv`, `per_seed.csv`, `per_assay.csv`, `summary.csv`, `paired_per_assay.csv`, `paired_summary.csv`; `source_selection.csv` in nested mode |
 | `cosine` | `pairwise_cosine.csv`, `probe_metadata.csv`, `probe_weights.npz`, `summary.csv` |
 | `shift` | `held_out.csv`, `source_reference.csv`, `summary.csv` |
 | `composition` | `coverage.csv`, `per_assay.csv`, `summary.csv` |
 | `context` | `candidate_pairs.csv`, `pair_concordance.csv` |
-| `support` | `eligibility.csv`, `support_splits.csv`, `support_selection.csv`, and, if eligible, predictions and per-seed/per-assay summaries |
+| `support` | `eligibility.csv`, `support_splits.csv`, `support_selection.csv`, and, if eligible, predictions, per-seed/per-assay summaries and `paired_summary.csv`/`paired_per_assay.csv` |
+| `paired-seeds` | `population.csv`, `per_seed.csv`, `per_assay.csv`, `summary.csv` |
+| `cross-task` | `predictions.csv`, `source_selection.csv`, `per_assay.csv`, `summary.csv`, `rho_matrix.csv`, `increment_matrix.csv`, `matrix_columns.csv` |
+| `calibrate-transfer` | `calibration.csv`, `per_assay.csv`, `input_runs.csv`, `population_differences.csv` |
 | `compare` | `excluded_keys.csv`, `per_assay.csv`, `summary.csv` |
+
+The [controlled-comparison recipes](RECIPES.md#prior-anchored-residual-controls)
+specify the residual estimator, complete source-only selection population,
+prior provenance and rank universe. The
+[joint-family recipe](RECIPES.md#joint-family-transfer-calibration) specifies
+Holm ranking tests, one-sided Bonferroni conditional bounds, family/threshold
+declarations and simulation-resolution limits. Ordinary `compare` intervals
+are not retroactively made simultaneous by either addition.
 
 Scope and label protocol are attached to analysis tables. Blank numerical CSV
 cells mean undefined values, not zero. Assays with fewer than three rows,

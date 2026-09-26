@@ -11,6 +11,7 @@ from sklearn.preprocessing import StandardScaler
 
 from .data import IDENTITY, KEY, Run, load_embeddings, load_metadata, scores, single_substitutions, stable_seed
 from .metrics import assay_metrics, macro_summary, ranks, rho
+from .paired import attach_comparator, checked_predictions, declared_seeds, paired_seed_summary, seed_correlations
 
 
 @dataclass
@@ -194,12 +195,26 @@ def select_support_alpha(x, y, positions, alphas):
 
 def run_support(args):
     from scipy.stats import rankdata
+    declared_seeds(args.seeds)
     frame = load_metadata(args.metadata)
     x = load_embeddings(args.embeddings, frame)
     single = single_substitutions(frame)
     if len(single) != len(frame):
         raise ValueError("support requires only canonical nonsynonymous single substitutions")
-    run = Run(args, "target-support diagnostic; support labels permitted; evaluation labels scoring only", [args.metadata, args.embeddings])
+    inputs, comparator = [args.metadata, args.embeddings], None
+    if getattr(args, "source_predictions", None):
+        if getattr(args, "source_label_protocol", None) != "no-target-label":
+            raise ValueError("Declare frozen source predictions as --source-label-protocol no-target-label")
+        comparator = checked_predictions(args.source_predictions, frame, [args.source_column], args.seeds, "no-target-label")
+        inputs.append(args.source_predictions)
+    baseline_column = getattr(args, "baseline_column", None)
+    if baseline_column:
+        if baseline_column in KEY + IDENTITY + ["score", "seed", "analysis_scope", "label_protocol"]:
+            raise ValueError("Baseline must be a fixed prior, not identity, effects or provenance")
+        # Validate the supplied prior on the whole declared population, not on a
+        # performance-dependent subset of realized evaluation rows.
+        single["_fixed_prior"] = scores(single, baseline_column)
+    run = Run(args, "target-support diagnostic; support labels permitted; evaluation labels scoring only", inputs)
     plans, inventory, split_rows = {}, [], []
     for assay, group in single.groupby("assay_id", sort=True):
         for seed in args.seeds:
@@ -224,6 +239,10 @@ def run_support(args):
             ev, arms = plans[assay, seed]
             result = group.iloc[ev][list(dict.fromkeys(KEY + IDENTITY))].copy()
             result["score"], result["seed"] = y[ev], seed
+            if comparator is not None:
+                result = attach_comparator(result, comparator, args.source_column)
+            if baseline_column:
+                result["prediction_prior"] = group.iloc[ev]["_fixed_prior"].to_numpy(dtype=float)
             for arm, support in arms.items():
                 alpha, values = select_support_alpha(features[support], y[support], group.position.to_numpy()[support], args.alphas)
                 for a, value in zip(args.alphas, values):
@@ -236,6 +255,8 @@ def run_support(args):
     if predictions:
         prediction = pd.concat(predictions, ignore_index=True)
         columns = [f"{arm}_{readout}" for arm in ("disjoint", "overlap") for readout in ("fixed", "selected")]
+        comparator_columns = (["prediction_source"] if comparator is not None else []) + (["prediction_prior"] if baseline_column else [])
+        columns += comparator_columns
         metrics = []
         for seed, group in prediction.groupby("seed"):
             m = assay_metrics(group, columns)
@@ -249,6 +270,20 @@ def run_support(args):
         run.table("per_seed.csv", per_seed)
         run.table("per_assay.csv", per_assay)
         run.table("summary.csv", macro_summary(per_assay))
+        paired_metrics = seed_correlations(prediction, columns)
+        contrasts = {"overlap_minus_disjoint_fixed": ("overlap_fixed", "disjoint_fixed"),
+                     "overlap_minus_disjoint_selected": ("overlap_selected", "disjoint_selected"),
+                     "disjoint_selected_minus_fixed": ("disjoint_selected", "disjoint_fixed"),
+                     "overlap_selected_minus_fixed": ("overlap_selected", "overlap_fixed")}
+        for control in comparator_columns:
+            for arm in ("disjoint_fixed", "disjoint_selected", "overlap_fixed", "overlap_selected"):
+                contrasts[f"{arm}_minus_{control.removeprefix('prediction_')}"] = (arm, control)
+        paired, intervals = paired_seed_summary(paired_metrics, contrasts, args.seeds, getattr(args, "bootstrap", 2000),
+                                               args.seed, single[IDENTITY])
+        run.table("paired_per_assay.csv", paired)
+        run.table("paired_summary.csv", intervals)
     run.finish(n_eligible_assays=int(eligible.sum()), n_excluded_assays=int((~eligible).sum()),
                eligibility="all declared seeds pass; full requested support budget; metadata-only gates",
+               comparators="optional frozen no-target-label source and fixed metadata prior, joined on exact same evaluation rows without refitting",
+               uncertainty="95% conditional percentile supercluster bootstrap after complete-seed within-assay pairing; fixed predictions/splits/selections; no multiplicity adjustment",
                no_eligible_assays=not bool(eligible.any()))

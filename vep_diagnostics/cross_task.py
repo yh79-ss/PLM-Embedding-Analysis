@@ -4,8 +4,18 @@ import pandas as pd
 
 from .data import IDENTITY, KEY, Run, load_embeddings, load_metadata, scores, stable_seed
 from .evaluation import holm, permutation_correlations
-from .metrics import paired_cluster_interval, rho
+from .metrics import paired_cluster_interval, permutation_pvalue, rho
 from .probes import fit_probe, rank_assays, select_source_alpha
+
+
+def task_matrix(summary, value):
+    """Encode arbitrary task labels so neither identity nor provenance collides."""
+    tasks = sorted(summary.target_task.unique())
+    mapping = pd.DataFrame({"matrix_column": [f"target_{i:04d}" for i in range(len(tasks))],
+                            "target_task": tasks})
+    encoded = dict(zip(mapping.target_task, mapping.matrix_column))
+    matrix = summary.pivot(index="source_task", columns="target_task", values=value)
+    return matrix.rename(columns=encoded).reset_index(), mapping
 
 
 def run_cross_task(args):
@@ -53,7 +63,7 @@ def run_cross_task(args):
         summaries.append({"source_task": source_task, "target_task": target_task, "diagonal": source_task == target_task,
                           "n_assays": len(group), "n_valid_pairs": len(paired), "rho_source": observed,
                           "rho_baseline": paired.rho_baseline.mean(), **interval,
-                          "permutation_p_greater": (1 + (null >= observed).sum()) / (args.permutations + 1) if len(paired) else np.nan})
+                          "permutation_p_greater": permutation_pvalue(null, observed) if len(paired) else np.nan})
     summary = pd.DataFrame(summaries)
     summary["ranking_p_holm"] = np.nan
     off_diagonal = ~summary.diagonal
@@ -62,10 +72,14 @@ def run_cross_task(args):
     run.table("source_selection.csv", pd.concat(selections, ignore_index=True))
     run.table("per_assay.csv", per_assay)
     run.table("summary.csv", summary)
-    run.table("rho_matrix.csv", summary.pivot(index="source_task", columns="target_task", values="rho_source").reset_index())
-    run.table("increment_matrix.csv", summary.pivot(index="source_task", columns="target_task", values="delta").reset_index())
+    rho_matrix, mapping = task_matrix(summary, "rho_source")
+    increment_matrix, _ = task_matrix(summary, "delta")
+    run.table("rho_matrix.csv", rho_matrix)
+    run.table("increment_matrix.csv", increment_matrix)
+    run.table("matrix_columns.csv", mapping)
     run.finish(selection="separate inner source-fold selection for each source-task/outer-fold fit; same assay-rank convention as probe",
                null="within-assay permutation of evaluation effects with fixed predictions; no source-label refitting",
                multiplicity="Holm only for off-diagonal ranking-signal tests in this one representation/run",
                uncertainty="95% conditional supercluster intervals for prior increments; NOT simultaneous/multiplicity-adjusted",
-               limitation="ranking significance is not incremental value; no automatic reliable-transfer verdict or causal task-mapping claim")
+               matrix_columns="target_XXXX columns are mapped to original task labels in matrix_columns.csv",
+               limitation="ranking significance is not incremental value; use calibrate-transfer for a declared joint family; no causal task-mapping claim")

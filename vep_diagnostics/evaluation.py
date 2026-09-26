@@ -5,7 +5,17 @@ from scipy.stats import rankdata
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from .data import IDENTITY, KEY, Run, keys, load_metadata, read_csv, require_columns, scores, single_substitutions, stable_seed
-from .metrics import paired_cluster_interval, ranks, rho
+from .metrics import paired_cluster_interval, permutation_pvalue, ranks, rho
+
+
+# User annotations must never be overwritten by generated metrics/provenance.
+RESERVED_GROUP_COLUMNS = frozenset(KEY + IDENTITY + [
+    "score", "model", "n_variants", "rho", "status", "analysis_scope", "label_protocol",
+    "random_mean", "random_p05", "random_p95", "permutation_p_greater", "permutation_p_holm",
+    "rho_source", "rho_oracle", "oracle_gap", "recovery", "group_column", "group_value",
+    "n_assays", "n_valid", "mean_rho", "ci_low", "ci_high", "n_clusters", "delta",
+    "baseline", "n_valid_pairs", "fraction_below_baseline", "n_valid_recovery", "mean_recovery",
+])
 
 
 def holm(pvalues):
@@ -20,6 +30,11 @@ def holm(pvalues):
 
 def prediction_frame(args):
     """Align one prediction realization to metadata; never pool repeated seeds."""
+    group_columns = set(getattr(args, "group_by", []))
+    collision = group_columns & (RESERVED_GROUP_COLUMNS | set(args.columns) |
+                                 {getattr(args, "baseline_column", None), getattr(args, "oracle_column", None)})
+    if collision:
+        raise ValueError(f"Reserved subgroup annotation columns: {sorted(collision)}")
     metadata, prediction = load_metadata(args.metadata), read_csv(args.predictions)
     require_columns(prediction, KEY)
     if args.prediction_seed is not None:
@@ -93,7 +108,7 @@ def run_evaluate(args):
                             "random_mean": null[:, j].mean() if valid else np.nan,
                             "random_p05": np.quantile(null[:, j], .05) if valid else np.nan,
                             "random_p95": np.quantile(null[:, j], .95) if valid else np.nan,
-                            "permutation_p_greater": (1 + (null[:, j] >= value).sum()) / (args.permutations + 1) if valid else np.nan,
+                            "permutation_p_greater": permutation_pvalue(null[:, j], value) if valid else np.nan,
                             "status": "ok" if valid else "undefined_correlation"})
         if args.oracle_column:
             source, oracle = values[args.columns[0]], values[args.oracle_column]
@@ -112,7 +127,7 @@ def run_evaluate(args):
         summaries.append({"task": task, "model": model, "n_assays": len(group), "n_valid": len(valid), "mean_rho": point,
                           **{k: v for k, v in interval.items() if k != "delta"},
                           "random_mean": null.mean(), "random_p05": np.quantile(null, .05), "random_p95": np.quantile(null, .95),
-                          "permutation_p_greater": (1 + (null >= point).sum()) / (args.permutations + 1) if len(valid) else np.nan})
+                          "permutation_p_greater": permutation_pvalue(null, point) if len(valid) else np.nan})
         for column in args.group_by:
             for value, subgroup in group.groupby(column, sort=True):
                 finite = subgroup[subgroup.status.eq("ok")]

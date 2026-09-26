@@ -72,8 +72,8 @@ def test_matched_predictions_ignore_evaluation_labels(data, tmp_path, selection)
                                mb.loc[mb.fold.eq(0), ["alpha", "weight_cosine_source_oracle"]], atol=0, rtol=0)
     for (assay, seed), group in pa.groupby(["assay_id", "seed"]):
         metric = ma[ma.assay_id.eq(assay) & ma.seed.eq(seed)].iloc[0]
-        assert metric.rho_source == pytest.approx(spearmanr(group.score, group.prediction_source).statistic)
-        assert metric.rho_oracle == pytest.approx(spearmanr(group.score, group.prediction_oracle).statistic)
+        assert metric.rho_source == pytest.approx(spearmanr(group.score, group.prediction_source)[0])
+        assert metric.rho_oracle == pytest.approx(spearmanr(group.score, group.prediction_oracle)[0])
         assert metric.oracle_gap == pytest.approx(metric.rho_oracle - metric.rho_source)
     summary = pd.read_csv(a / "summary.csv")
     np.testing.assert_allclose(summary.oracle_gap, summary.rho_oracle - summary.rho_source, atol=1e-14)
