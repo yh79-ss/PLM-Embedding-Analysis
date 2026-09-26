@@ -4,6 +4,30 @@ Run protein-embedding diagnostics on your own precomputed variant vectors.
 This repository includes our protein-level split and CPU tools for source/oracle
 prediction, embedding MMD, probe-weight cosine, and related assay analyses.
 
+## Choose a diagnostic
+
+The tools cover the broader slide/code workflow, not just MMD and oracle scores.
+Start with `validate`, then choose the question relevant to your embeddings:
+
+| Question | Tool / instructions |
+|---|---|
+| Does source supervision help after readout tuning? | `probe`: fixed and source-selected Ridge; [baseline comparison](docs/RECIPES.md#fixed-baselines-and-ranking-controls) |
+| How much assay-local signal is accessible? | `diagnose`: matched source/oracle scores; [normalized recovery](docs/RECIPES.md#normalized-recovery) |
+| Does local learnability depend on position overlap? | `support`: matched overlap/disjoint support and support-only tuning |
+| Do embedding distributions differ? | `shift`: MMD², centroid and covariance distances, source reference |
+| Does shift track performance or the oracle gap? | [`associate`](docs/RECIPES.md#shiftperformance-associations): within-task associations and scatterplots |
+| What does embedding geometry look like? | [`geometry`](docs/RECIPES.md#embedding-visualization-and-quality-checks): shared PCA and quality checks |
+| Are probe directions stable relative to reference controls? | `cosine`: fold-local weights plus [bootstrap/shuffle references](docs/RECIPES.md#cosine-reference-controls) |
+| Where does a predictor make errors? | [`errors`](docs/RECIPES.md#calibration-and-error-modes): calibration bins, tail AP/AUROC, pair ranking, error strata |
+| Are variant libraries or assay contexts different? | `composition`: coverage/JSD; `context`: exact-background agreement |
+| Does another interface add information, not just replace the base? | [`probe --aux-embeddings` + `compare`](docs/RECIPES.md#representation-and-complementarity-comparisons) |
+| Can one task predict another? | [`cross-task`](docs/RECIPES.md#cross-task-transfer): transfer/increment matrices, ranking null and source-only selection |
+| Are results driven by a subgroup or study source? | [`evaluate --group-by` + `provenance`](docs/RECIPES.md#subgroups-provenance-and-external-predictions) |
+| How do I evaluate external predictions or fixed priors? | `evaluate`, `baselines`, `compare`: keyed scores, matched populations, conditional intervals |
+
+See the [slide/code coverage map](docs/COVERAGE.md) for included analyses and
+deliberate exclusions. No automatic causal shift classification is produced.
+
 ## Install
 
 ```bash
@@ -158,6 +182,7 @@ Read `outputs/mmd/held_out.csv`:
 | Output column | Meaning |
 |---|---|
 | `mmd_squared` | Multi-scale RBF MMD² between a held-out assay and its same-task source pool |
+| `centroid_distance`, `covariance_distance` | Mean-vector and covariance-matrix differences, normalized by √dimension |
 | `reference_percentile` | Its location in the matched source-assay distance reference |
 | `n_pool_sample`, `n_assay_sample` | Actual sample sizes used |
 
@@ -194,6 +219,11 @@ This is the fold-local cosine diagnostic. The
 `weight_cosine_source_oracle` from `diagnose` compares different models and
 must be labeled separately. Neither low cosine nor a large oracle gap alone
 identifies a biological mechanism. [Definitions and limitations](docs/METHODS.md#probe-weight-cosine).
+
+Add `--reference-repeats 20` to a new `cosine` run for within-fold assay-bootstrap
+and shuffled-label references. Inspect `reference_summary.csv`; these are
+descriptive references, not an upper bound or a confidence interval for the
+observed cross-fold cosine. [Runnable reference recipe](docs/RECIPES.md#cosine-reference-controls).
 
 ## Other analysis recipes
 
@@ -245,6 +275,7 @@ python -m pytest -q
 ```
 
 [Detailed methods and troubleshooting](docs/METHODS.md) ·
+[Additional runnable recipes](docs/RECIPES.md) · [Slide/code coverage](docs/COVERAGE.md) ·
 [Split provenance](splits/README.md) · [Implementation provenance](PROVENANCE.md)
 
 This is a portable analysis toolkit, not an exact replay of the study. It

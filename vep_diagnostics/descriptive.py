@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .data import KEY, Run, load_embeddings, load_metadata, require_columns, scores, single_substitutions, stable_seed
-from .metrics import js_divergence, mmd_squared, rho
+from .metrics import js_divergence, mmd_squared, moment_distances, rho
 
 
 def sample_indices(idx, cap, seed):
@@ -35,14 +35,17 @@ def run_shift(args):
                               "super_cluster": group.super_cluster.iloc[0], "side": side,
                               "n_pool_available": len(pool), "n_assay_available": len(group)}
                     if len(pool) < 2 or len(group) < 2:
-                        record.update(mmd_squared=np.nan, n_pool_sample=0, n_assay_sample=0, status="insufficient_rows")
+                        record.update(mmd_squared=np.nan, centroid_distance=np.nan, covariance_distance=np.nan,
+                                      n_pool_sample=0, n_assay_sample=0, status="insufficient_rows")
                     else:
                         a = sample_indices(pool.index.to_numpy(), args.max_samples, stable_seed(args.seed, task, fold, assay, "pool"))
                         b = sample_indices(group.index.to_numpy(), args.max_samples, stable_seed(args.seed, task, fold, assay, "assay"))
-                        record.update(mmd_squared=mmd_squared(x[a], x[b]), n_pool_sample=len(a), n_assay_sample=len(b), status="ok")
+                        centroid, covariance = moment_distances(x[a], x[b])
+                        record.update(mmd_squared=mmd_squared(x[a], x[b]), centroid_distance=centroid,
+                                      covariance_distance=covariance, n_pool_sample=len(a), n_assay_sample=len(b), status="ok")
                     (reference if side == "source_reference" else rows).append(record)
     columns = ["task", "outer_fold", "assay_id", "super_cluster", "side", "n_pool_available", "n_assay_available",
-               "mmd_squared", "n_pool_sample", "n_assay_sample", "status"]
+               "mmd_squared", "centroid_distance", "covariance_distance", "n_pool_sample", "n_assay_sample", "status"]
     held, reference = pd.DataFrame(rows, columns=columns), pd.DataFrame(reference, columns=columns)
     held["reference_percentile"] = np.nan
     held["n_reference_assays"] = 0
@@ -56,7 +59,8 @@ def run_shift(args):
     run.table("summary.csv", held.groupby("task", as_index=False).agg(
         n_assays=("assay_id", "size"), n_valid_mmd=("mmd_squared", "count"),
         n_calibrated=("reference_percentile", "count"), median_mmd_squared=("mmd_squared", "median"),
-        median_reference_percentile=("reference_percentile", "median")))
+        median_reference_percentile=("reference_percentile", "median"),
+        median_centroid_distance=("centroid_distance", "median"), median_covariance_distance=("covariance_distance", "median")))
     run.finish(reference="each source assay vs source pool excluding its entire supercluster, same outer fold/task",
                kernel="biased MMD squared; mean of RBF kernels with squared-bandwidth multipliers 0.5,1,2,4",
                bandwidth="median positive squared pairwise distance of the two sampled sets, recomputed for every comparison",

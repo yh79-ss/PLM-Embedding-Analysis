@@ -134,7 +134,7 @@ def run_cosine(args):
     x = load_embeddings(args.embeddings, frame)
     frame["score"] = scores(frame)
     run = Run(args, "descriptive fold-local label-fitted probes; not no-target-label evaluation", [args.metadata, args.embeddings])
-    records, weights, rows = [], {}, []
+    records, weights, rows, references = [], {}, [], []
     for task, task_frame in frame.groupby("task", sort=True):
         for fold in sorted(frame.fold.unique()):
             group = task_frame[task_frame.fold.eq(fold)]
@@ -150,6 +150,8 @@ def run_cosine(args):
                 model = fit_probe(x[group.index.to_numpy()], y, args.alpha)
                 weight, intercept = model.raw_coef, model.raw_intercept
                 status = "ok" if np.isfinite(weight_cosine(weight, weight)) else "zero_or_invalid_weight"
+                if args.reference_repeats:
+                    references.extend(cosine_references(group, x[group.index.to_numpy()], y, args))
             weights[task, fold] = weight
             records.append({"task": task, "fold": fold, "n_variants": len(group), "n_assays": group.assay_id.nunique(),
                             "alpha": args.alpha, "label_transform": args.label_transform, "raw_intercept": intercept,
@@ -168,9 +170,45 @@ def run_cosine(args):
     run.table("pairwise_cosine.csv", pairwise)
     run.table("probe_metadata.csv", metadata)
     run.table("summary.csv", pd.DataFrame(summary))
+    if args.reference_repeats:
+        reference = pd.DataFrame(references, columns=["task", "fold", "reference", "repeat", "weight_cosine", "n_assays", "status"])
+        run.table("reference_draws.csv", reference)
+        reference_summary = []
+        for (task, fold, kind), group in reference.groupby(["task", "fold", "reference"], sort=True):
+            values = group.weight_cosine.dropna()
+            reference_summary.append({"task": task, "fold": fold, "reference": kind, "n_draws": len(group), "n_valid": len(values),
+                                      "mean_cosine": values.mean(), "q05": values.quantile(.05), "q95": values.quantile(.95)})
+        run.table("reference_summary.csv", pd.DataFrame(reference_summary))
     np.savez_compressed(run.path / "probe_weights.npz", weights=np.stack([weights[t, f] for t, f in weights]),
                         task=np.asarray([t for t, f in weights], dtype=str), fold=np.asarray([f for t, f in weights], dtype=int))
     run.finish(cosine_role="pairs of same-task probes each fitted only within a different fold",
                coefficient_space="original input feature coordinates: scaler-standardized coefficient divided by fitted feature scale",
                uncertainty="none; fold pairs share fitted probes and are not independent replicates",
-               label_transform=args.label_transform)
+               label_transform=args.label_transform,
+               references="optional within-fold same-pool assay-bootstrap pairs and independently within-assay shuffled-label pairs; descriptive brackets, not ceilings, tests, or observed-pair confidence intervals")
+
+
+def cosine_references(group, x, y, args):
+    """Same-pool brackets with precisely the observed label transform and scaler."""
+    assays = list(group.groupby("assay_id", sort=True).indices.values())
+    rows = []
+    for repeat in range(args.reference_repeats):
+        for kind in ("assay_bootstrap", "shuffled_labels"):
+            weights = []
+            for side in ("a", "b"):
+                rng = np.random.default_rng(stable_seed(args.seed, group.task.iloc[0], group.fold.iloc[0], kind, repeat, side))
+                if kind == "assay_bootstrap":
+                    if len(assays) < 2:
+                        continue
+                    idx = np.concatenate([assays[i] for i in rng.integers(len(assays), size=len(assays))])
+                    features, labels = x[idx], y[idx]
+                else:
+                    features, labels = x, y.copy()
+                    for idx in assays:
+                        labels[idx] = rng.permutation(labels[idx])
+                weights.append(fit_probe(features, labels, args.alpha).raw_coef)
+            value = weight_cosine(*weights) if len(weights) == 2 else np.nan
+            rows.append({"task": group.task.iloc[0], "fold": group.fold.iloc[0], "reference": kind, "repeat": repeat,
+                         "weight_cosine": value, "n_assays": len(assays),
+                         "status": "ok" if np.isfinite(value) else "insufficient_assays_or_undefined_weight"})
+    return rows

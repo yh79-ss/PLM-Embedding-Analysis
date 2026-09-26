@@ -23,6 +23,7 @@ def make_demo(out, seed):
                     rows.append({"assay_id": f"synthetic_{task}_{fold}", "mutant": f"A{position}{alternative}",
                                  "protein_id": f"synthetic_protein_{fold}", "task": task,
                                  "super_cluster": f"synthetic_cluster_{fold}", "fold": fold,
+                                 "provenance": f"synthetic_study_{fold % 2}", "platform": "synthetic_platform",
                                  "protein_length": len(background), "score": shared + rng.normal(scale=0.2),
                                  "baseline": shared + rng.normal(scale=1.0), "background_sequence": background,
                                  "mutated_sequence": background[:position - 1] + alternative + background[position:]})

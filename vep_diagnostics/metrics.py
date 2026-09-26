@@ -71,6 +71,26 @@ def mmd_squared(x, y):
     return float(max(0.0, np.mean(values)))
 
 
+def moment_distances(x, y):
+    """Dimension-normalized mean and covariance distances in declared coordinates."""
+    dimension = x.shape[1]
+    centroid = float(np.linalg.norm(x.mean(axis=0) - y.mean(axis=0)) / np.sqrt(dimension))
+    if min(len(x), len(y)) < 2:
+        return centroid, float("nan")
+    a, b = x - x.mean(axis=0), y - y.mean(axis=0)
+    if dimension <= len(x) + len(y):
+        value = np.linalg.norm(a.T @ a / (len(a) - 1) - b.T @ b / (len(b) - 1), "fro")
+    else:
+        # Gram identity avoids allocating two D-by-D matrices for high-dimensional inputs.
+        aa = np.sum((a @ a.T) ** 2) / (len(a) - 1) ** 2
+        bb = np.sum((b @ b.T) ** 2) / (len(b) - 1) ** 2
+        cross = np.sum((a @ b.T) ** 2) / ((len(a) - 1) * (len(b) - 1))
+        squared = aa + bb - 2 * cross
+        tolerance = 16 * np.finfo(float).eps * max(aa + bb, 2 * abs(cross))
+        value = np.sqrt(squared) if squared > tolerance else 0.0
+    return centroid, float(value / np.sqrt(dimension))
+
+
 def js_divergence(p, q):
     """Jensen-Shannon divergence in bits, not its square root."""
     p, q = np.asarray(p, dtype=float), np.asarray(q, dtype=float)

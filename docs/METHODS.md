@@ -2,6 +2,10 @@
 
 For runnable commands and output columns, start with the [README](../README.md).
 This reference contains the longer input, protocol and interpretation details.
+The [additional recipes](RECIPES.md) document the v0.3 baseline, recovery,
+prediction-error, geometry, cosine-reference, augmentation, cross-task and
+provenance tools. The [coverage map](COVERAGE.md) traces them to the slides/code
+and explains the excluded historical procedures.
 
 ## Prepare your inputs
 
@@ -308,6 +312,14 @@ By default, a seeded Gaussian projection maps features to 128 dimensions. Use
 The same projection is used throughout a run. Each side of a distance comparison
 is uniformly sampled without replacement to at most `--max-samples` rows
 (default 1,000); source-pool sampling is row-weighted, not assay-weighted.
+
+The same sampled rows also produce centroid and covariance distances:
+`||mean(X) - mean(Y)||₂ / sqrt(d)` and `||cov(X) - cov(Y)||F / sqrt(d)`,
+using sample covariances (`n - 1` denominator) in the declared full or projected
+coordinates. They are not standardized effect sizes. For large feature spaces
+the covariance norm uses an equivalent Gram-matrix calculation to avoid D²
+storage. Negative squared values and cancellation within a relative floating-
+point roundoff tolerance are set to zero.
 
 The statistic is biased RBF **MMD squared**, including within-sample diagonals,
 averaged over squared-bandwidth multipliers `0.5, 1, 2, 4`. The base squared

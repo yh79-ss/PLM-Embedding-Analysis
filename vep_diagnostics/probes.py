@@ -86,6 +86,11 @@ def select_source_alpha(frame, x, alphas):
 def run_probe(args):
     frame = load_metadata(args.metadata)
     x = load_embeddings(args.embeddings, frame)
+    inputs = [args.metadata, args.embeddings]
+    if args.aux_embeddings:
+        auxiliary = load_embeddings(args.aux_embeddings, frame)
+        x = np.column_stack([x, auxiliary])
+        inputs.append(args.aux_embeddings)
     frame["score"] = scores(frame)
     tasks = sorted(frame.task.unique())
     if bool(args.source_task) != bool(args.target_task):
@@ -96,7 +101,7 @@ def run_probe(args):
     protocol = "no-target-label protein-disjoint; source-only nested alpha selection"
     if args.shuffle_source_labels:
         protocol += "; shuffled-source-label control"
-    run = Run(args, protocol, [args.metadata, args.embeddings])
+    run = Run(args, protocol, inputs)
     predictions, selections = [], []
     for source_task, target_task in pairs:
         for fold in sorted(frame.loc[frame.task.eq(target_task), "fold"].unique()):
@@ -131,7 +136,8 @@ def run_probe(args):
     run.table("summary.csv", macro_summary(metrics))
     run.finish(n_variants=len(prediction), n_assays=prediction.assay_id.nunique(),
                rank_scope="within each fitting assay; inner fits recompute ranks using inner-training labels only",
-               ridge_weighting="equal rows; evaluation is equal assays", solver="svd")
+               ridge_weighting="equal rows; evaluation is equal assays", solver="svd",
+               feature_blocks="key-aligned base plus auxiliary concatenation, each coordinate source-standardized; no block-scale tuning" if args.aux_embeddings else "base only")
 
 
 def paired_support_split(frame, seed, budget):

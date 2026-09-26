@@ -29,6 +29,12 @@ identifiers, not required files or imports in this standalone package.
 | Composition and coverage | `experiment/diagnostics/variant_composition/metadata_reaudit.py`; `experiment/diagnostics/variant_composition/raw_metadata_coverage.py`; `reports/paper_revision_execution_20260907/variant_composition/REPORT.md` |
 | Context concordance | `experiment/diagnostics/paired_context/run.py`; `reports/paper_revision_execution_20260907/paired_context/REPORT.md` |
 | Conditional paired cluster intervals | `experiment/reproducibility/cluster_uncertainty/cluster_sensitivity.py` |
+| Fixed-score, random-ranking and recovery summaries | `experiment/diagnostics/transfer/diagnostic_statistical_baselines.py`; `consolidate_diagnostic_baselines.py` in the same directory |
+| Prediction calibration/error strata and tail metrics | `experiment/diagnostics/transfer/diagnostic2_calibration_errormode.py`; repaired metrics in `diagnose_transfer_shift.py` |
+| PCA and shift–performance association | `experiment/diagnostics/transfer/diagnostic_embedding_visualization.py`; later task-separated interpretation in the decision log |
+| Matched cosine reference fits | `experiment/diagnostics/matched_calibration/cosine/run_matched_fold_local_calibration.py` |
+| Cross-task source selection and ranking permutation | `experiment/cross_task/source_alpha_selection/core.py` |
+| Auxiliary-feature comparison, subgroup/provenance coverage | September 18 deck Acts 3–5; adapted generic keyed inputs and existing probe/comparison primitives |
 | Evaluation guardrails and interpretation | `experiment/DECISION_LOG.md`; `reports/diagnostic_repairs_20260918/REPORT.md`; the repository's `AGENTS.md` |
 
 ### Source hashes
@@ -43,6 +49,13 @@ ce6ea153e91909b00d2f893435c7f06adaff8d59e65f26075706f66cc975249f  experiment/dia
 1c37897d68ede5e1b7e9e643e722dd0d99c4d0667adb9adf9487f97c4d4f980f  experiment/_shared/source_selection.py
 b0e322fb4822a33a9d90ed2f5f9efa61cd918e27b47aced3c36cf9a801349684  experiment/reproducibility/cluster_uncertainty/cluster_sensitivity.py
 0e3d3629a811a76d7ff1a3e70009076cef5acd73852a85fde073211ef05f61cc  experiment/diagnostics/transfer/diagnostic_probe_weight_similarity.py
+cf38c14eed5a10a3ad78fb75c2f89df8f6a70ff036d3be9a8d5f0e2abbd41f7d  cross_family_VEP_storyline_reframed (1).pptx
+49f3a880c4c9f0e623e0bccf9afda6e24e16733ea7179b40a2c36f03c8cea515  experiment/diagnostics/transfer/diagnostic_statistical_baselines.py
+f39e7f0a8e734687b38c058db9417832c2ca47cf03d91db05df7a5e07b14a710  experiment/diagnostics/transfer/consolidate_diagnostic_baselines.py
+966c5811a5d5746e41ad7cae190d4907daf4ea9ce7648ccfc10ea003fbc14a2c  experiment/diagnostics/transfer/diagnostic2_calibration_errormode.py
+6aae746abda6ea135aa82186abceb4a37e09ef8dfa0cf9a7b70df7475a7732ea  experiment/diagnostics/transfer/diagnostic_embedding_visualization.py
+d54da43fb7252c397de3dd7df9d343fc1512cbf42120964d827fdb160934cc74  experiment/diagnostics/matched_calibration/cosine/run_matched_fold_local_calibration.py
+6bc4b3c5c23e377f5cc2b324679597819f50d475f73a1cc30f2596dd5cbeaf74  experiment/cross_task/source_alpha_selection/core.py
 ```
 
 ## What is preserved and what differs
@@ -98,6 +111,37 @@ of private-path producer scripts with their original result/cache dependencies.
   residual-network sweeps, test-time training, external corpus ingestion,
   biological database queries and mutation-level mechanistic ranking are not
   part of the exported toolset.
+
+The v0.3 expansion reviewed both decks, not only the user's example metrics.
+It adds source-calibrated moment distances, shared PCA, within-task associations,
+saved-prediction evaluation and error diagnostics, recovery, cosine references,
+cross-task matrices, source/provenance summaries and auxiliary-block comparisons.
+See the [full coverage map](docs/COVERAGE.md) and [runnable recipes](docs/RECIPES.md).
+Important differences from the upstream producers are explicit:
+
+- Evaluation permutations preserve the actual observed ties. Holm covers only
+  the ranking-test family in a given call; paired increment intervals are
+  conditional supercluster intervals, not historical simultaneous bounds.
+- Recovery uses one selected oracle evaluation seed at a time and a user-declared
+  minimum oracle rho (default 0.05). It is not a reproduction of historical
+  denominator thresholds, populations or recovery intervals.
+- Error analyses use keyed held-out predictions, not silently repurposed cached
+  fold-local coefficients. Bias uses original percentile-scale predictions;
+  there is no exported post-intercept residual-bias field or causal driver label.
+- PCA samples independently of effects and retains the actual sampled keys.
+  No panels are selected by target performance. Associations are task-separated,
+  with no pooled coefficient or causal decision rules.
+- Cosine references use the observed transform/alpha, assay-level resampling
+  within each task/fold and exact SVD. Too few assays or zero directions remain
+  undefined. These same-pool brackets are not cross-fold confidence bounds.
+- Cross-task fits exclude the complete target outer fold, reuse the generic
+  source-only nested rank/scaler protocol and report all directions. They do not
+  reproduce historical pair-specific frozen populations/folds or decision rules.
+- Auxiliary features are exact-key concatenations with source-fitted coordinate
+  scaling. No learned stacking, block-scale selection, SAE training or oracle
+  feature construction is performed or certified.
+- BLOSUM62 is optionally loaded from BioPython's bundled matrix; no matrix,
+  external protein record or third-party dataset is copied into the repository.
 
 Changing the population, rank convention, pooling, solver, selection grid,
 support design or metric changes the estimand or numerical procedure. Declare
