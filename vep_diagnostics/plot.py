@@ -18,9 +18,9 @@ def plot_summary(args):
     label = frame.task.astype(str)
     if "model" in frame:
         label = label + " / " + frame.model.astype(str)
-    values = [c for c in ("delta", "mean_rho", "median_reference_percentile", "mean_substitution_jsd") if c in frame]
+    values = [c for c in ("delta", "oracle_gap", "mean_weight_cosine", "mean_rho", "median_reference_percentile", "mean_substitution_jsd") if c in frame]
     if not values:
-        raise ValueError("Unsupported summary; use probe, support, compare, shift, or composition summary.csv")
+        raise ValueError("Unsupported summary; use probe, diagnose, cosine, support, compare, shift, or composition summary.csv")
     value = values[0]
     if not np.isfinite(frame[value]).any():
         raise ValueError("No finite summary values to plot")

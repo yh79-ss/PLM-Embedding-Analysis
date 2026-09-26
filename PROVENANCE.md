@@ -22,6 +22,8 @@ identifiers, not required files or imports in this standalone package.
 | Portable tool | Source implementation / evidence |
 |---|---|
 | Source-only alpha selection | `experiment/_shared/source_selection.py`; the source-selection families under `experiment/diagnostics/source_selected_bstar/` and `experiment/interfaces/source_alpha_selection/` |
+| Matched source/oracle comparison | `experiment/diagnostics/transfer/diagnose_transfer_shift.py`: random-row support, same evaluation variants, raw-coordinate source/oracle cosine |
+| Fold-local probe cosine | `experiment/diagnostics/transfer/diagnostic_probe_weight_similarity.py`: fit within each task/fold, then compare different folds |
 | Embedding distances and reference calibration | `experiment/diagnostics/transfer/diagnose_transfer_shift.py`; `experiment/diagnostics/transfer/analysis/mmd_traintrain_assaylevel.py`; `reports/mmd_traintrain_assaylevel/report.md` |
 | Position-support diagnostic | `experiment/diagnostics/position_support/run.py`; `reports/paper_revision_execution_20260907/position_support_v2/REPORT.md` |
 | Composition and coverage | `experiment/diagnostics/variant_composition/metadata_reaudit.py`; `experiment/diagnostics/variant_composition/raw_metadata_coverage.py`; `reports/paper_revision_execution_20260907/variant_composition/REPORT.md` |
@@ -40,6 +42,7 @@ ce6ea153e91909b00d2f893435c7f06adaff8d59e65f26075706f66cc975249f  experiment/dia
 4c6f855c4a6a3b0781e61cce75794efbe3085d0bfc59308387a1276ec954915d  experiment/diagnostics/variant_composition/raw_metadata_coverage.py
 1c37897d68ede5e1b7e9e643e722dd0d99c4d0667adb9adf9487f97c4d4f980f  experiment/_shared/source_selection.py
 b0e322fb4822a33a9d90ed2f5f9efa61cd918e27b47aced3c36cf9a801349684  experiment/reproducibility/cluster_uncertainty/cluster_sensitivity.py
+0e3d3629a811a76d7ff1a3e70009076cef5acd73852a85fde073211ef05f61cc  experiment/diagnostics/transfer/diagnostic_probe_weight_similarity.py
 ```
 
 ## What is preserved and what differs
@@ -81,7 +84,17 @@ of private-path producer scripts with their original result/cache dependencies.
 - Comparison intervals preserve the assay-macro paired contrast while resampling
   clusters. They do not reproduce study-specific registration, simultaneous
   bounds, multiple-testing procedures or two-level source-refit uncertainty.
-- Direct coefficient-cosine, SAE training/interpretability, PLM fine-tuning,
+- The v0.2 `diagnose` command adds random-row target-support comparison with
+  explicit `rho_source`, `rho_oracle`, gap and source/oracle cosine columns. It
+  uses one common fixed or source-selected alpha, original-coordinate weights,
+  and finite complete-seed paired summaries. The separate `cosine` command adds
+  fold-local comparisons with historical rank-Gaussian labels by default. Both
+  use SVD and the portable input population; neither reproduces cached study
+  values or the historical causal cosine thresholds. No independent-pair
+  bootstrap interval is assigned to overlapping fold pairs. The later study
+  microcontract restricted direct source/oracle cosine to method history; the
+  new generic diagnostic does not restore its withdrawn scientific claims.
+- SAE training/interpretability, PLM fine-tuning,
   residual-network sweeps, test-time training, external corpus ingestion,
   biological database queries and mutation-level mechanistic ranking are not
   part of the exported toolset.

@@ -32,6 +32,8 @@ def parser():
     validate.add_argument("--embeddings")
     for command, help_text in (
         ("probe", "Nested source-only Ridge and fixed-alpha control"),
+        ("diagnose", "Matched rho_source, rho_oracle, oracle gap and source/oracle cosine"),
+        ("cosine", "Pairwise weight cosine between fold-local probes"),
         ("support", "Explicit target-support position-overlap/disjoint diagnostic"),
         ("shift", "Embedding MMD with source-assay calibration"),
         ("composition", "Label-free single-substitution library audit"),
@@ -43,21 +45,29 @@ def parser():
         p.add_argument("--out", required=True, help="New directory; existing paths are refused")
         p.add_argument("--scope", required=True, help="Population name, including Binding subset when relevant")
         p.add_argument("--seed", type=int, default=0)
-        if command in ("probe", "support", "shift"):
+        if command in ("probe", "support", "shift", "diagnose", "cosine"):
             p.add_argument("--embeddings", required=True)
             p.add_argument("--representation", required=True, help="Model, layer, pooling and mutant/WT/delta convention")
-        if command in ("probe", "support"):
+        if command in ("probe", "support", "diagnose"):
             p.add_argument("--alphas", type=float, nargs="+", default=[0.01, 0.1, 1, 10, 100, 1000, 10000, 100000, 1000000])
             p.add_argument("--fixed-alpha", type=float, default=1.0)
         if command == "probe":
             p.add_argument("--source-task")
             p.add_argument("--target-task")
             p.add_argument("--shuffle-source-labels", action="store_true")
-        if command == "support":
+        if command in ("support", "diagnose"):
             p.add_argument("--allow-target-support", action="store_true", required=True,
                            help="Explicitly declare that target-support labels may be fitted")
-            p.add_argument("--support-size", type=positive_int, default=512)
             p.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
+        if command == "support":
+            p.add_argument("--support-size", type=positive_int, default=512)
+        if command == "diagnose":
+            p.add_argument("--support-fraction", type=float, default=0.5)
+            p.add_argument("--source-selection", choices=["fixed", "nested"], default="fixed",
+                           help="Share fixed alpha, or source-selected alpha, between source and oracle")
+        if command == "cosine":
+            p.add_argument("--alpha", type=float, default=1.0)
+            p.add_argument("--label-transform", choices=["rank-gaussian", "percentile"], default="rank-gaussian")
         if command == "shift":
             p.add_argument("--projection-dim", type=int, default=128, help="Fixed Gaussian projection dimension; 0 uses full features")
             p.add_argument("--max-samples", type=positive_int, default=1000)
@@ -89,6 +99,10 @@ def main(argv=None):
         args.alphas = sorted(args.alphas)
     if hasattr(args, "projection_dim") and args.projection_dim < 0:
         p.error("--projection-dim cannot be negative")
+    if hasattr(args, "support_fraction") and not 0 < args.support_fraction < 1:
+        p.error("--support-fraction must be strictly between 0 and 1")
+    if hasattr(args, "alpha") and (not np.isfinite(args.alpha) or args.alpha <= 0):
+        p.error("--alpha must be finite and strictly positive")
     if hasattr(args, "seeds") and len(args.seeds) != len(set(args.seeds)):
         p.error("--seeds must be unique")
     if hasattr(args, "seed") and args.seed < 0:
@@ -122,6 +136,9 @@ def main(argv=None):
             elif args.command in ("probe", "support"):
                 from .probes import run_probe, run_support
                 (run_probe if args.command == "probe" else run_support)(args)
+            elif args.command in ("diagnose", "cosine"):
+                from .diagnose import run_diagnose, run_cosine
+                (run_diagnose if args.command == "diagnose" else run_cosine)(args)
             elif args.command in ("shift", "composition", "context"):
                 from .descriptive import run_shift, run_composition, run_context
                 {"shift": run_shift, "composition": run_composition, "context": run_context}[args.command](args)

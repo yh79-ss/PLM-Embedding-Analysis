@@ -1,6 +1,8 @@
 """Source-only nested Ridge and explicitly separate target-support diagnostics."""
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
@@ -11,14 +13,35 @@ from .data import IDENTITY, KEY, Run, load_embeddings, load_metadata, scores, si
 from .metrics import assay_metrics, macro_summary, ranks, rho
 
 
-def fit_predict(x_train, y_train, x_test, alpha):
+@dataclass
+class FittedProbe:
+    scaler: StandardScaler
+    model: Ridge
+
+    @property
+    def raw_coef(self):
+        return np.asarray(self.model.coef_, dtype=float) / self.scaler.scale_
+
+    @property
+    def raw_intercept(self):
+        return float(self.model.intercept_ - self.scaler.mean_ @ self.raw_coef)
+
+    def predict(self, x):
+        prediction = self.model.predict(self.scaler.transform(x))
+        if not np.isfinite(prediction).all():
+            raise ValueError("Nonfinite Ridge prediction")
+        return prediction
+
+
+def fit_probe(x_train, y_train, alpha):
     # Exact SVD avoids treating a finite iterative-solver result as convergence.
     scaler = StandardScaler().fit(x_train)
     model = Ridge(alpha=float(alpha), solver="svd").fit(scaler.transform(x_train), y_train)
-    prediction = model.predict(scaler.transform(x_test))
-    if not np.isfinite(prediction).all():
-        raise ValueError("Nonfinite Ridge prediction")
-    return prediction
+    return FittedProbe(scaler, model)
+
+
+def fit_predict(x_train, y_train, x_test, alpha):
+    return fit_probe(x_train, y_train, alpha).predict(x_test)
 
 
 def rank_assays(frame):
@@ -101,6 +124,10 @@ def run_probe(args):
     run.table("predictions.csv", prediction)
     run.table("source_selection.csv", pd.concat(selections, ignore_index=True))
     run.table("per_assay.csv", metrics)
+    source_scores = metrics.pivot(index=["assay_id", "task", "protein_id", "super_cluster", "fold", "n_variants"],
+                                  columns="model", values="rho").reset_index().rename(columns={
+        "prediction": "rho_source", "fixed_prediction": "rho_source_fixed", "baseline": "rho_baseline"})
+    run.table("source_scores.csv", source_scores)
     run.table("summary.csv", macro_summary(metrics))
     run.finish(n_variants=len(prediction), n_assays=prediction.assay_id.nunique(),
                rank_scope="within each fitting assay; inner fits recompute ranks using inner-training labels only",
